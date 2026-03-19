@@ -1,18 +1,28 @@
 import customtkinter as ctk
+import os
+import sys
 import threading
-import time
+import pystray
+from PIL import Image, ImageDraw
 
-# Import diagnostics
-from diagnostics.signal import get_wifi_signal
-from diagnostics.speed import run_speed_test
-from diagnostics.ping import run_ping_test
-from diagnostics.dns import check_dns
-from diagnostics.gateway import check_gateway
-from diagnostics.channel import analyze_channels
-from troubleshooter import analyze_results
-from utils import Status
+# Ensure tabs directory is discoverable
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Set appearance mode and color theme
+from tabs.dashboard import DashboardTab
+from tabs.logs import LogsTab
+from tabs.deep_scan import DeepScanTab
+from tabs.bandwidth import BandwidthTab
+from tabs.game_mode import GameModeTab
+from tabs.traceroute import TracerouteTab
+from tabs.packet_analyzer import PacketAnalyzerTab
+
+# Phase 2 Theme Palette (Discord + Catppuccin)
+BG_DARK = "#313338" # Discord main bg
+BG_PANEL = "#2b2d31" # Discord secondary panel
+ACCENT_PURPLE = "#cba6f7" # Catppuccin Mauve
+ACCENT_PURPLE_HOVER = "#b4befe" # Catppuccin Lavender
+TEXT_MAIN = "#f2f3f5" # Discord text color
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
@@ -20,161 +30,115 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("ShitassWifiTB - WiFi Troubleshooter")
-        self.geometry("700x600")
+        self.title("ShitassWifiTB - Advanced Diagnostics")
+        self.geometry("850x650")
         self.resizable(False, False)
+        
+        # Apply dark theme background
+        self.configure(fg_color=BG_DARK)
 
-        # Main layout
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         # Header
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+        self.header_frame.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
         
-        self.title_label = ctk.CTkLabel(self.header_frame, text="Network Diagnostics", font=ctk.CTkFont(size=24, weight="bold"))
+        self.title_label = ctk.CTkLabel(
+            self.header_frame, 
+            text="ShitassWifiTB", 
+            font=ctk.CTkFont(family="Consolas", size=24, weight="bold"), 
+            text_color=ACCENT_PURPLE
+        )
         self.title_label.pack(side="left")
         
         self.status_label = ctk.CTkLabel(self.header_frame, text="Status: Ready", text_color="gray")
         self.status_label.pack(side="right", pady=5)
 
-        # Controls
-        self.controls_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.controls_frame.grid(row=1, column=0, padx=20, pady=(0, 10), sticky="ew")
+        # Tabview
+        self.tabview = ctk.CTkTabview(
+            self, 
+            width=810, 
+            height=600, 
+            fg_color=BG_PANEL, 
+            segmented_button_fg_color=BG_DARK, 
+            segmented_button_selected_color=ACCENT_PURPLE, 
+            segmented_button_selected_hover_color=ACCENT_PURPLE_HOVER, 
+            segmented_button_unselected_color=BG_DARK, 
+            text_color=TEXT_MAIN
+        )
+        self.tabview.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="nsew")
         
-        self.run_btn = ctk.CTkButton(self.controls_frame, text="Run Full Diagnostics", command=self.run_diagnostics)
-        self.run_btn.pack(side="left")
+        # Add Tabs
+        self.tabview.add("Dashboard")
+        self.tabview.add("Game Mode")
+        self.tabview.add("Bandwidth")
+        self.tabview.add("Traceroute")
+        self.tabview.add("Logs")
+        self.tabview.add("Deep Scan")
+        self.tabview.add("Packet Analyzer")
         
-        self.progress_bar = ctk.CTkProgressBar(self.controls_frame, mode="indeterminate")
-        self.progress_bar.pack(side="left", fill="x", expand=True, padx=(20, 0))
-        self.progress_bar.set(0)
+        # Init Tabs
+        self.dashboard_tab = DashboardTab(self.tabview.tab("Dashboard"), update_status_callback=self.log_status, fg_color="transparent")
+        self.dashboard_tab.pack(fill="both", expand=True)
 
-        # Results Panel
-        self.results_frame = ctk.CTkScrollableFrame(self, label_text="Live Metrics", label_anchor="w")
-        self.results_frame.grid(row=2, column=0, padx=20, pady=10, sticky="nsew")
-        self.results_frame.grid_columnconfigure(1, weight=1)
+        self.logs_tab = LogsTab(self.tabview.tab("Logs"), bg_color="transparent")
+        self.logs_tab.pack(fill="both", expand=True)
 
-        # Prepare result labels
-        self.result_labels = {}
-        metrics = ["SIGNAL", "SPEED", "PING", "DNS", "GATEWAY", "CHANNEL"]
+        self.deep_scan_tab = DeepScanTab(self.tabview.tab("Deep Scan"), bg_color="transparent")
+        self.deep_scan_tab.pack(fill="both", expand=True)
         
-        for i, metric in enumerate(metrics):
-            name_lbl = ctk.CTkLabel(self.results_frame, text=metric, font=ctk.CTkFont(weight="bold"), width=80, anchor="w")
-            name_lbl.grid(row=i, column=0, padx=10, pady=5, sticky="w")
-            
-            val_lbl = ctk.CTkLabel(self.results_frame, text="Waiting...", text_color="gray", anchor="w")
-            val_lbl.grid(row=i, column=1, padx=10, pady=5, sticky="we")
-            
-            self.result_labels[metric.lower()] = val_lbl
+        self.bandwidth_tab = BandwidthTab(self.tabview.tab("Bandwidth"), bg_color="transparent")
+        self.bandwidth_tab.pack(fill="both", expand=True)
+        
+        self.game_mode_tab = GameModeTab(self.tabview.tab("Game Mode"), bg_color="transparent")
+        self.game_mode_tab.pack(fill="both", expand=True)
 
-        # Diagnosis section
-        self.diag_frame = ctk.CTkFrame(self)
-        self.diag_frame.grid(row=3, column=0, padx=20, pady=(10, 20), sticky="ew")
+        self.traceroute_tab = TracerouteTab(self.tabview.tab("Traceroute"), bg_color="transparent")
+        self.traceroute_tab.pack(fill="both", expand=True)
         
-        self.diag_title = ctk.CTkLabel(self.diag_frame, text="Diagnosis & Recommendations", font=ctk.CTkFont(weight="bold"))
-        self.diag_title.pack(anchor="w", padx=10, pady=(10, 0))
-        
-        self.diag_text = ctk.CTkTextbox(self.diag_frame, height=120, wrap="word")
-        self.diag_text.pack(fill="x", padx=10, pady=10)
-        self.diag_text.insert("0.0", "Run diagnostics to get a plain-English explanation of your network issues.")
-        self.diag_text.configure(state="disabled")
+        self.packet_analyzer_tab = PacketAnalyzerTab(self.tabview.tab("Packet Analyzer"), bg_color="transparent")
+        self.packet_analyzer_tab.pack(fill="both", expand=True)
+
+        # Handle close event for system tray
+        self.protocol("WM_DELETE_WINDOW", self.hide_window)
+        self.tray_icon = None
 
     def log_status(self, text):
         self.status_label.configure(text=text)
         self.update()
 
-    def update_metric(self, metric, result):
-        lbl = self.result_labels.get(metric)
-        if not lbl: return
-        
-        status = result.get("status")
-        value = result.get("value")
-        details = result.get("details", "")
-        
-        # Color coding
-        colors = {
-            Status.GOOD: "green",
-            Status.WARNING: "orange",
-            Status.BAD: "red",
-            Status.ERROR: "red"
-        }
-        color = colors.get(status, "white")
-        
-        lbl.configure(text=f"{value}  —  {details}", text_color=color)
+    def create_tray_icon_image(self):
+        # Create a simple generic system tray icon since we don't have an .ico file
+        image = Image.new('RGB', (64, 64), color=BG_DARK)
+        d = ImageDraw.Draw(image)
+        d.rectangle([16, 16, 48, 48], fill=ACCENT_PURPLE)
+        return image
 
-    def run_diagnostics(self):
-        # Disable button and start loading
-        self.run_btn.configure(state="disabled", text="Testing...")
-        self.progress_bar.start()
-        
-        # Reset labels
-        for lbl in self.result_labels.values():
-            lbl.configure(text="Testing...", text_color="gray")
-            
-        self.diag_text.configure(state="normal")
-        self.diag_text.delete("0.0", "end")
-        self.diag_text.insert("0.0", "Analyzing network data...\n")
-        self.diag_text.configure(state="disabled")
+    def hide_window(self):
+        self.withdraw()
+        image = self.create_tray_icon_image()
+        menu = pystray.Menu(
+            pystray.MenuItem('Open Dashboard', self.show_window, default=True),
+            pystray.MenuItem('Quit ShitassWifiTB', self.quit_app)
+        )
+        self.tray_icon = pystray.Icon("ShitassWifiTB", image, "ShitassWifiTB Logging Active", menu)
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
-        # Run tests in a background thread so UI doesn't freeze
-        threading.Thread(target=self._test_runner, daemon=True).start()
+    def show_window(self, icon, item):
+        icon.stop()
+        self.after(0, self.deiconify)
 
-    def _test_runner(self):
-        all_results = {}
-        
-        # Run sequentially to avoid overwhelming the network connection during tests
-        # 1. Gateway
-        self.log_status("Status: Pinging router...")
-        res = check_gateway()
-        self.update_metric("gateway", res)
-        all_results["gateway"] = res
-        
-        # 2. DNS
-        self.log_status("Status: Testing DNS resolution...")
-        res = check_dns()
-        self.update_metric("dns", res)
-        all_results["dns"] = res
-        
-        # 3. Signal & Channel (Fast local checks)
-        self.log_status("Status: Analyzing WiFi environment...")
-        res_sig = get_wifi_signal()
-        res_chan = analyze_channels()
-        self.update_metric("signal", res_sig)
-        self.update_metric("channel", res_chan)
-        all_results["signal"] = res_sig
-        all_results["channel"] = res_chan
-        
-        # 4. Sustained Ping (Takes ~10 seconds for the test)
-        self.log_status("Status: Running latency/jitter test (10s)...")
-        res = run_ping_test(count=10) # 10s for UI responsiveness, can be increased
-        self.update_metric("ping", res)
-        all_results["ping"] = res
-        
-        # 5. Speed Test (Slowest, do last)
-        self.log_status("Status: Running speed test (this takes a moment)...")
-        res = run_speed_test()
-        self.update_metric("speed", res)
-        all_results["speed"] = res
-        
-        # Generate Diagnosis
-        self.log_status("Status: Generating diagnosis...")
-        suggestions = analyze_results(all_results)
-        
-        # Update UI back on main thread
-        self.after(0, self._finish_tests, suggestions)
-        
-    def _finish_tests(self, suggestions):
-        self.progress_bar.stop()
-        self.run_btn.configure(state="normal", text="Re-test")
-        self.log_status("Status: Finished")
-        
-        self.diag_text.configure(state="normal")
-        self.diag_text.delete("0.0", "end")
-        
-        for i, sugg in enumerate(suggestions, 1):
-            self.diag_text.insert("end", f"{sugg}\n\n")
-            
-        self.diag_text.configure(state="disabled")
+    def quit_app(self, icon, item):
+        icon.stop()
+        try:
+            self.logs_tab.on_closing()
+            self.bandwidth_tab.on_closing()
+            self.game_mode_tab.on_closing()
+            self.traceroute_tab.on_closing()
+            self.packet_analyzer_tab.on_closing()
+        except: pass
+        self.after(0, self.destroy)
 
 if __name__ == "__main__":
     app = App()
