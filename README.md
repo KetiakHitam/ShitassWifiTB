@@ -1,4 +1,4 @@
-# ShitassWifiTB
+# LatencyDoc
 
 A modular, multi-threaded Windows diagnostic utility designed for real-time network troubleshooting and latency analysis. Tinkered around with Antigravity during this too, made out of spite due to lagging at night
 
